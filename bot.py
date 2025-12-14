@@ -1,9 +1,10 @@
 import os
 import sqlite3
+import dateparser
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # Load .env vars into the environment
 load_dotenv()
@@ -43,26 +44,55 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Hi fren ヾ( ˃ᴗ˂ )◞ • *✰! I'm your reminder bot. Use /remind to get a reminder!")
 
 
-async def remind(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /remind command, store reminder in SQLite."""
-    try:
-        delay = int(context.args[0])  # in minutes
-        message = ' '.join(context.args[1:]) or "Hey! This is your reminder ✩°｡⋆⸜(˙꒳˙)"
-        remind_time = (datetime.now() + timedelta(minutes=delay)).isoformat()
-        user_id = update.effective_user.id
-        chat_id = update.effective_chat.id
+async def remind(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-        conn = sqlite3.connect("reminders.db")
-        c = conn.cursor()
-        c.execute("INSERT INTO reminders (user_id, chat_id, message, remind_time, status) VALUES (?, ?, ?, ?, ?)",
-                  (user_id, chat_id, message, remind_time, "pending"))
-        conn.commit()
-        conn.close()
+    if not context.args:
+        return await update.message.reply_text("Usage: /remind <time> <message>")
 
-        await update.message.reply_text(f"Okay! I'll remind you in {delay} minute(s). („• ᴗ •„)")
+    full_text = " ".join(context.args)
 
-    except (IndexError, ValueError):
-        await update.message.reply_text("Usage: /remind <minutes> <message>")
+    # 1. Parse time ONLY from the *start* of the text
+    # Try increasing prefixes until parsing fails
+    parts = full_text.split()
+    parsed_time = None
+    cutoff_index = 0
+
+    for i in range(1, len(parts) + 1):
+        candidate = " ".join(parts[:i])
+        dt = dateparser.parse(candidate, settings={'PREFER_DATES_FROM': 'future'})
+        if dt:
+            parsed_time = dt
+            cutoff_index = i
+        else:
+            break
+
+    if not parsed_time:
+        return await update.message.reply_text("Sorry, I couldn't understand the time you gave me 😢")
+
+    # 2. Extract message
+    message = " ".join(parts[cutoff_index:]).strip()
+    if not message:
+        message = "Hey! This is your reminder ✩°｡⋆⸜(˙꒳˙)"
+
+    # 3. Validate future time
+    if parsed_time <= datetime.now():
+        return await update.message.reply_text("Time must be in the future (｡•́︿•̀｡)")
+
+    # 4. Store reminder
+    conn = sqlite3.connect("reminders.db")
+    c = conn.cursor()
+    c.execute("INSERT INTO reminders (user_id, chat_id, message, remind_time, status) VALUES (?, ?, ?, ?, ?)",
+              (update.effective_user.id,
+               update.effective_chat.id,
+               message,
+               parsed_time.isoformat(),
+               "pending"))
+    conn.commit()
+    conn.close()
+
+    await update.message.reply_text(
+        f"Got it! I'll remind you at {parsed_time.strftime('%Y-%m-%d %H:%M:%S')} (⌯'▾'⌯)✨"
+    )
 
 
 async def check_reminders(context: ContextTypes.DEFAULT_TYPE):
