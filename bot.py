@@ -6,6 +6,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 from datetime import datetime
 
+
 # Load .env vars into the environment
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
@@ -60,10 +61,11 @@ async def remind(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for i in range(1, len(parts) + 1):
         candidate = " ".join(parts[:i])
         dt = dateparser.parse(candidate, settings={'PREFER_DATES_FROM': 'future'})
+
         if dt:
             parsed_time = dt
             cutoff_index = i
-        else:
+        elif parsed_time is not None:
             break
 
     if not parsed_time:
@@ -126,8 +128,8 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("remind", remind))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    # Start reminder checker every minute
-    app.job_queue.run_repeating(check_reminders, interval=60, first=0, name="reminder_checker")
+    # Start reminder checker every 10 seconds
+    app.job_queue.run_repeating(check_reminders, interval=10, first=0, name="reminder_checker")
 
     print("Bot is running... Press Ctrl+C to stop.")
     app.run_polling()
